@@ -6,11 +6,11 @@
 
 #include "include/builtins.h"
 
-void clean() {
+int clean() {
     struct winsize w;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1) {
-        perror("ioctl");
-        return;
+        perror("ioctl ");
+        return 1;
     }
 
     for (uint16_t i = 0; i < w.ws_row; ++i)
@@ -20,14 +20,14 @@ void clean() {
             printf(" ");
     for (uint16_t i = 0; i < w.ws_row; ++i)
         printf("\r\033[A");
+
+    return 0;
 }
 
 int cd(char *dir) {
-    if (!chdir(dir));
-    else {
-        perror("Directory doesn't exist ");
-        return 1;
-    }
+    if (!chdir(dir))
+        return 0;
 
-    return 0;
+    perror("Directory doesn't exist ");
+    return 1;
 }

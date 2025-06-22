@@ -4,10 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <pthread.h>
 #include <linux/limits.h>
 
 #include "include/builtins.h"
 
+
+int parallel = 0;
 
 typedef struct {
     char *name;
@@ -47,22 +51,82 @@ command_t *init_command(char *name, size_t argc, char **argv) {
 command_t *parse_command(char *line) {
     char *name = strtok(line, " ");
     
-    size_t argc = 0;
-    char *arg = NULL, **argv = NULL;
+    size_t argc = 1;
+    char *arg = NULL, **argv = calloc(2, sizeof(char *));
+    argv[0] = "--";
     while ((arg = strtok(NULL, " "))) {
+        if (!strcmp(arg, "&")) {
+            parallel = 1;
+            break;
+        }
+
         argc += 1;
-        argv = realloc(argv, argc);
+        argv = realloc(argv, (argc + 2) * sizeof(char *));
         argv[argc - 1] = arg;
     }
+    argv[argc] = NULL;
 
-    return init_command(name, argc, argv);
+    return init_command(name, argc + 1, argv);
+}
+
+void *follow_child(void *arg) {
+    int pid = *(int *)arg;
+    
+    int status;
+    waitpid(pid, &status, 0);
+    kill(pid, SIGINT);
+    printf("{%d} Exitted with status %d\n", pid, status);
+
+    return arg;
+}
+
+int run_parallel(command_t *command) {
+    int pid = fork();
+
+    if (pid) {
+        printf("Child created %d\n", pid);
+        if (parallel) {
+            pthread_t ct;
+            if (pthread_create(&ct, NULL, follow_child, &pid) != 0) {
+                perror("Failed to create thread ");
+                kill(pid, SIGINT);
+                return 1;
+            }
+            usleep(10000);
+        }
+    } else {
+        printf("Running %s\n", command->name);
+        for (size_t i = 0; i < command->argc; ++i)
+            printf("%s ", command->argv[i]);
+
+        execvp(command->name, command->argv);        
+        perror(" ");
+        exit(-1);
+    }
+
+    return pid;
 }
 
 int find_command(command_t *command) {
     if (!strcmp(command->name, "clear")) {
-        clean();
+        return clean();
     } else if (!strcmp(command->name, "cd")) {
-        cd(command->argv[0]);
+        return cd(command->argv[0]);
+    } else {
+        int pid = run_parallel(command);
+        if (pid < 0)
+            return pid;
+
+        if (!parallel) {
+            int status;
+            waitpid(pid, &status, 0);
+            printf("Exitted with status %d\n", status);
+            
+            return status;
+        } else
+            parallel = 0;
+        
+        return 0;
     }
 }
 
@@ -77,18 +141,17 @@ int main() {
                 errno = 22;
                 perror("No Such Command ");
             } else {
-
                 command_t *pc = parse_command(command);
-                if (find_command(pc)) {
+                int ec = find_command(pc);
 
-                }
+                free(pc->argv);
+                free(pc);
             }
         } else {
-            perror("Couldn't Get Current Working Directory");
+            perror("Couldn't Get Current Working Directory ");
             return 1;
         }
     }
 
-    clean();    
     return 0;
 }

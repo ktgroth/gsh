@@ -2,7 +2,7 @@
 #ifndef BUILTINS_H
 #define BUILTINS_H
 
-void clean();
+int clean();
 int cd(char *dir);
 
 #endif
